@@ -7,19 +7,51 @@ def _as_1d(x,name: str = "x") -> np.ndarray:
     """ 
     convert x into 1d ndarray or raise value error
     """
-    raise NotImplementedError
+
+    arr = np.ndarray(x)
+
+    if arr.ndim != 1: 
+        raise ValueError("arr must be 1-D")
+    
+    return arr
 
 def _check_k(k: int, n:int, *, allow_zero: bool = True) -> int: 
     """
     validate int k against len n, return as int 
     """
-    raise NotImplementedError
+    if type(k) != int: 
+        raise TypeError
+
+    k = int(k)
+
+    if allow_zero == True:
+        if k < 0 or k > n: 
+            raise ValueError(f"k must satisfy 0 <= k <= {n}")
+    else:
+        if k < 0 or k >= n:
+            raise ValueError(f"k must satisfy 0 <= k < {n}")
+    
+    return k
+        
+
 
 def _check_axis(axis: int, ndim: int) -> int: 
     """
     normalise axis, can be negative. 
     Raise exceptions.AxisError if invalid
     """
+
+    if type(axis) != int: 
+        raise TypeError 
+    
+    if axis < 0: 
+        axis = axis + ndim
+    
+    if axis < 0 or axis >= ndim:
+        raise np.exceptions.AxisError
+    
+    return axis
+
 
 # Sorting Algorithms 
 def merge_sort(x, *, return_indecies = False): 
