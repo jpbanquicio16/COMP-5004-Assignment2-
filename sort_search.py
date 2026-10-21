@@ -8,7 +8,7 @@ def _as_1d(x,name: str = "x") -> np.ndarray:
     convert x into 1d ndarray or raise value error
     """
 
-    arr = np.ndarray(x)
+    arr = np.asarray(x)
 
     if arr.ndim != 1: 
         raise ValueError("arr must be 1-D")
@@ -44,11 +44,12 @@ def _check_axis(axis: int, ndim: int) -> int:
     if type(axis) != int: 
         raise TypeError 
     
+    original_axis = axis
     if axis < 0: 
         axis = axis + ndim
     
     if axis < 0 or axis >= ndim:
-        raise np.exceptions.AxisError
+        raise np.exceptions.AxisError(original_axis, ndim=ndim)
     
     return axis
 
@@ -84,7 +85,60 @@ def merge_sort(x, *, return_indecies = False):
     Time O(n log n), space O(n). Stable: equal elements keep input order,
     which ``rank.rank(method="ordinal")`` relies on.
     """
-    raise NotImplementedError
+
+    arr = _as_1d(x)
+    
+    values = arr.tolist()
+    indeces = list(range(len(arr)))
+
+    def _merge_sort(val, index): 
+        if len(val) <= 1:
+            return val, index
+
+        mid = len(val) // 2
+
+        left_val, left_index = _merge_sort(
+        val[:mid],
+            index[:mid]
+        )
+
+        right_val, right_index = _merge_sort(
+            val[mid:],
+            index[mid:]
+        )
+
+        return _merge(
+            left_val,
+            left_index,
+            right_val,
+            right_index
+        )
+    
+def _merge(left_vals, left_index, right_vals, right_index):
+    merged_vals = []
+    merged_index = []
+
+    i = 0
+    j = 0
+
+    while i < len(left_vals) and j < len(right_vals):
+
+        if left_vals[i] <= right_vals[j]:
+            merged_vals.append(left_vals[i])
+            merged_index.append(left_index[i])
+            i += 1
+        else:
+            merged_vals.append(right_vals[j])
+            merged_index.append(right_index[j])
+            j += 1
+
+    merged_vals.extend(left_vals[i:])
+    merged_index.extend(left_index[i:])
+
+    merged_vals.extend(right_vals[j:])
+    merged_index.extend(right_index[j:])
+
+    return merged_vals, merged_index
 
 def sort(x, axis: int = -1, *, stable: bool = True):
     """Vectorised sort along ``axis`` (NumPy-backed fast path).
@@ -109,7 +163,18 @@ def sort(x, axis: int = -1, *, stable: bool = True):
     -----
     Time O(n log n) per slice, space O(size of x).
     """
-    raise NotImplementedError
+
+
+    arr = np.asarray(x)
+
+    axis = _check_axis(axis, arr.ndim)
+
+    if stable:
+        return np.sort(arr, axis=axis, kind="stable")
+
+    return np.sort(arr, axis=axis)
+
+
  
  
 def argsort(x, axis: int = -1, *, stable: bool = True):
@@ -134,8 +199,14 @@ def argsort(x, axis: int = -1, *, stable: bool = True):
     -----
     Time O(n log n) per slice, space O(size of x).
     """
-    raise NotImplementedError
- 
+
+    arr = np.asarray(x)
+    axis = _check_axis(axis, arr.ndim)
+
+    if stable:
+        return np.argsort(arr, axis=axis, kind="stable")
+    else:
+        return np.argsort(arr, axis=axis)
  
 # ---------------------------------------------------------------------------
 # Selection
@@ -169,7 +240,26 @@ def quickselect(x, k: int, *, rng=None):
     -----
     Time O(n) expected, O(n^2) worst case. Space O(n) for the partitions.
     """
-    raise NotImplementedError
+    arr = _as_1d(x)
+    k = _check_k(k, arr.size, allow_zero=False)
+    if np.issubdtype(arr.dtype, np.inexact) and np.isnan(arr).any():
+        raise ValueError("x must not contain NaN")
+
+    generator = np.random.default_rng(rng)
+    while arr.size > 1:
+        pivot = arr[generator.integers(arr.size)]
+        lower = arr[arr < pivot]
+        equal_count = np.count_nonzero(arr == pivot)
+
+        if k < lower.size:
+            arr = lower
+        elif k < lower.size + equal_count:
+            return pivot
+        else:
+            k -= lower.size + equal_count
+            arr = arr[arr > pivot]
+
+    return arr[0]
  
  
 def topk(x, k: int, axis: int = -1, *, largest: bool = True, sorted: bool = True):
@@ -204,7 +294,38 @@ def topk(x, k: int, axis: int = -1, *, largest: bool = True, sorted: bool = True
     Time O(n + k log k) per slice when ``sorted`` else O(n).
     Space O(size of x).
     """
-    raise NotImplementedError
+    arr = np.asarray(x)
+    axis = _check_axis(axis, arr.ndim)
+    n = arr.shape[axis]
+    k = _check_k(k, n)
+
+    if k == 0:
+        shape = list(arr.shape)
+        shape[axis] = 0
+        return np.empty(shape, dtype=arr.dtype), np.empty(shape, dtype=np.intp)
+
+    # Include indices in the partition keys so ties at the cutoff are stable.
+    # For largest=True, larger keys must prefer smaller original indices.
+    keys = np.empty(arr.shape, dtype=[("value", arr.dtype), ("index", np.intp)])
+    keys["value"] = arr
+    index_shape = [1] * arr.ndim
+    index_shape[axis] = n
+    original_indices = np.arange(n, dtype=np.intp).reshape(index_shape)
+    keys["index"] = -original_indices if largest else original_indices
+
+    cutoff = n - k if largest else k - 1
+    partition = np.argpartition(keys, cutoff, axis=axis, order=["value", "index"])
+    positions = np.arange(n - k, n) if largest else np.arange(k)
+    indices = np.take(partition, positions, axis=axis)
+
+    if sorted:
+        selected_keys = np.take_along_axis(keys, indices, axis=axis)
+        order = np.argsort(selected_keys, axis=axis, order=["value", "index"])
+        if largest:
+            order = np.flip(order, axis=axis)
+        indices = np.take_along_axis(indices, order, axis=axis)
+
+    return np.take_along_axis(arr, indices, axis=axis), indices
  
  
 # ---------------------------------------------------------------------------
@@ -239,7 +360,31 @@ def binary_search(arr, target, *, side: str = "left") -> int:
     -----
     Time O(log n), space O(1).
     """
-    raise NotImplementedError
+    arr = _as_1d(arr, name="arr")
+    if side not in ("left", "right"):
+        raise ValueError("side must be 'left' or 'right'")
+    if np.ndim(target) != 0:
+        raise ValueError("target must be a scalar")
+
+    low, high = 0, arr.size
+    target_is_nan = target != target
+    while low < high:
+        mid = (low + high) // 2
+        value = arr[mid]
+        # Match NumPy's placement of real NaNs after ordinary values.
+        if value != value:
+            move_right = target_is_nan and side == "right"
+        elif target_is_nan:
+            move_right = True
+        else:
+            move_right = value < target or (side == "right" and value == target)
+
+        if move_right:
+            low = mid + 1
+        else:
+            high = mid
+
+    return low
  
  
 def searchsorted(arr, values, *, side: str = "left"):
@@ -265,5 +410,13 @@ def searchsorted(arr, values, *, side: str = "left"):
     -----
     Time O(m log n), space O(m).
     """
-    raise NotImplementedError
+    arr = _as_1d(arr, name="arr")
+    if side not in ("left", "right"):
+        raise ValueError("side must be 'left' or 'right'")
+    values = np.asarray(values)
+    if values.ndim > 1:
+        raise ValueError("values must be a scalar or 1-D")
+
+    result = np.searchsorted(arr, values, side=side)
+    return int(result) if values.ndim == 0 else result
  
