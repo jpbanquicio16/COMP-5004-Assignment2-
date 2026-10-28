@@ -55,14 +55,15 @@ def _check_axis(axis: int, ndim: int) -> int:
 
 
 # Sorting Algorithms 
-def merge_sort(x, *, return_indecies = False): 
+def merge_sort(x, *, return_indices=False):
     """
     Stable merge sort implemented from scratch (1-D).
  
     Parameters
     ----------
     x : array_like, shape (n,)
-        Values to sort. NaNs are placed last.
+        Real numbers, booleans, or strings to sort. NaNs are placed last
+        and retain their original order.
     return_indices : bool, default False
         If True, also return the permutation that sorts ``x``.
  
@@ -78,18 +79,23 @@ def merge_sort(x, *, return_indecies = False):
     ValueError
         If ``x`` is not 1-D.
     TypeError
-        If ``x`` has a non-orderable dtype.
+        If ``x`` has an unsupported dtype (including complex, object,
+        structured, and datetime arrays).
  
     Notes
     -----
-    Time O(n log n), space O(n). Stable: equal elements keep input order,
-    which ``rank.rank(method="ordinal")`` relies on.
+    Time O(n log n), space O(n). Stable: equal elements keep input order.
+    This educational implementation uses recursive splitting and merge loops;
+    ``sort`` and ``argsort`` provide the NumPy-backed alternatives used by
+    ``rank``. The input is not modified.
     """
 
     arr = _as_1d(x)
+    if arr.dtype.kind not in "buifUS":
+        raise TypeError("x must contain real numbers, booleans, or strings")
     
     values = arr.tolist()
-    indeces = list(range(len(arr)))
+    indices = list(range(len(arr)))
 
     def _merge_sort(val, index): 
         if len(val) <= 1:
@@ -98,7 +104,7 @@ def merge_sort(x, *, return_indecies = False):
         mid = len(val) // 2
 
         left_val, left_index = _merge_sort(
-        val[:mid],
+            val[:mid],
             index[:mid]
         )
 
@@ -113,6 +119,13 @@ def merge_sort(x, *, return_indecies = False):
             right_val,
             right_index
         )
+
+    _, sorted_indices = _merge_sort(values, indices)
+    sorted_indices = np.asarray(sorted_indices, dtype=np.intp)
+    sorted_x = arr[sorted_indices]
+    if return_indices:
+        return sorted_x, sorted_indices
+    return sorted_x
     
 def _merge(left_vals, left_index, right_vals, right_index):
     merged_vals = []
@@ -123,7 +136,11 @@ def _merge(left_vals, left_index, right_vals, right_index):
 
     while i < len(left_vals) and j < len(right_vals):
 
-        if left_vals[i] <= right_vals[j]:
+        left = left_vals[i]
+        right = right_vals[j]
+        # NaN is unequal to itself. Prefer the left side for equal values
+        # (including two NaNs) to preserve stability across merge boundaries.
+        if right != right or (left == left and left <= right):
             merged_vals.append(left_vals[i])
             merged_index.append(left_index[i])
             i += 1
