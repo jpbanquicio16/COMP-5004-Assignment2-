@@ -1,5 +1,20 @@
+"""Sorting, selection and insertion searches using Python and NumPy.
+
+Sorting is stable by default. Selection uses zero-based positions; searches
+require ascending input and return insertion positions, not match indicators.
+Functions return new outputs without modifying their inputs. Merge sort and
+binary search use educational from-scratch loops; quickselect iteratively
+narrows vectorised partitions. NumPy-backed alternatives handle bulk work.
+"""
+
 from __future__ import annotations
+
+import operator
+
 import numpy as np 
+
+__all__ = ["merge_sort", "sort", "argsort", "quickselect", "topk",
+           "binary_search", "searchsorted"]
 
 # priv validation helpers 
 
@@ -11,26 +26,26 @@ def _as_1d(x,name: str = "x") -> np.ndarray:
     arr = np.asarray(x)
 
     if arr.ndim != 1: 
-        raise ValueError("arr must be 1-D")
+        raise ValueError(f"{name} must be 1-D, got shape {arr.shape}")
     
     return arr
 
-def _check_k(k: int, n:int, *, allow_zero: bool = True) -> int: 
-    """
-    validate int k against len n, return as int 
-    """
-    if type(k) != int: 
-        raise TypeError
+def _as_index(value, name: str) -> int:
+    """Accept Python/NumPy integer indices, excluding booleans and floats."""
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer, got {type(value).__name__}")
+    try:
+        return operator.index(value)
+    except TypeError:
+        raise TypeError(f"{name} must be an integer, got {type(value).__name__}") from None
 
-    k = int(k)
 
-    if allow_zero == True:
-        if k < 0 or k > n: 
-            raise ValueError(f"k must satisfy 0 <= k <= {n}")
-    else:
-        if k < 0 or k >= n:
-            raise ValueError(f"k must satisfy 0 <= k < {n}")
-    
+def _check_k(k: int, n: int, *, allow_n: bool = True) -> int:
+    """Validate 0 <= k <= n (or k < n when allow_n=False)."""
+    k = _as_index(k, "k")
+    if k < 0 or (k > n if allow_n else k >= n):
+        comparison = "<=" if allow_n else "<"
+        raise ValueError(f"k must satisfy 0 <= k {comparison} {n}, got {k}")
     return k
         
 
@@ -41,8 +56,7 @@ def _check_axis(axis: int, ndim: int) -> int:
     Raise exceptions.AxisError if invalid
     """
 
-    if type(axis) != int: 
-        raise TypeError 
+    axis = _as_index(axis, "axis")
     
     original_axis = axis
     if axis < 0: 
@@ -128,6 +142,11 @@ def merge_sort(x, *, return_indices=False):
     return sorted_x
     
 def _merge(left_vals, left_index, right_vals, right_index):
+    """Merge sorted value/index lists stably, placing real NaNs last.
+
+    Return two new lists in O(len(left_vals) + len(right_vals)) time and space.
+    Preferring the left value on ties preserves the original input order.
+    """
     merged_vals = []
     merged_index = []
 
@@ -173,6 +192,9 @@ def sort(x, axis: int = -1, *, stable: bool = True):
  
     Raises
     ------
+    TypeError
+        If ``axis`` is not an integer index (booleans and floats are rejected),
+        or input elements cannot be ordered.
     np.exceptions.AxisError
         If ``axis`` is out of range.
  
@@ -209,6 +231,9 @@ def argsort(x, axis: int = -1, *, stable: bool = True):
  
     Raises
     ------
+    TypeError
+        If ``axis`` is not an integer index (booleans and floats are rejected),
+        or input elements cannot be ordered.
     np.exceptions.AxisError
         If ``axis`` is out of range.
  
@@ -252,13 +277,16 @@ def quickselect(x, k: int, *, rng=None):
     ------
     ValueError
         If ``x`` is empty, not 1-D, contains NaN, or ``k`` is out of range.
+    TypeError
+        If ``k`` is not an integer index (booleans and floats are rejected),
+        or input elements cannot be compared.
  
     Notes
     -----
     Time O(n) expected, O(n^2) worst case. Space O(n) for the partitions.
     """
     arr = _as_1d(x)
-    k = _check_k(k, arr.size, allow_zero=False)
+    k = _check_k(k, arr.size, allow_n=False)
     if np.issubdtype(arr.dtype, np.inexact) and np.isnan(arr).any():
         raise ValueError("x must not contain NaN")
 
@@ -303,6 +331,9 @@ def topk(x, k: int, axis: int = -1, *, largest: bool = True, sorted: bool = True
     ------
     ValueError
         If ``k`` is negative or larger than ``x.shape[axis]``.
+    TypeError
+        If ``k`` or ``axis`` is not an integer index (booleans and floats are
+        rejected), or input elements cannot be ordered.
     np.exceptions.AxisError
         If ``axis`` is out of range.
  
@@ -371,7 +402,9 @@ def binary_search(arr, target, *, side: str = "left") -> int:
     Raises
     ------
     ValueError
-        If ``arr`` is not 1-D or ``side`` is invalid.
+        If ``arr`` is not 1-D, ``target`` is not scalar, or ``side`` is invalid.
+    TypeError
+        If the target and array elements cannot be compared.
  
     Notes
     -----
@@ -381,7 +414,7 @@ def binary_search(arr, target, *, side: str = "left") -> int:
     if side not in ("left", "right"):
         raise ValueError("side must be 'left' or 'right'")
     if np.ndim(target) != 0:
-        raise ValueError("target must be a scalar")
+        raise ValueError(f"target must be a scalar, got shape {np.shape(target)}")
 
     low, high = 0, arr.size
     target_is_nan = target != target
@@ -421,7 +454,10 @@ def searchsorted(arr, values, *, side: str = "left"):
     Raises
     ------
     ValueError
-        If ``arr`` is not 1-D or ``side`` is invalid.
+        If ``arr`` is not 1-D, ``values`` is neither scalar nor 1-D,
+        or ``side`` is invalid.
+    TypeError
+        If the values and array elements cannot be ordered together.
  
     Notes
     -----
@@ -432,7 +468,7 @@ def searchsorted(arr, values, *, side: str = "left"):
         raise ValueError("side must be 'left' or 'right'")
     values = np.asarray(values)
     if values.ndim > 1:
-        raise ValueError("values must be a scalar or 1-D")
+        raise ValueError(f"values must be a scalar or 1-D, got shape {values.shape}")
 
     result = np.searchsorted(arr, values, side=side)
     return int(result) if values.ndim == 0 else result

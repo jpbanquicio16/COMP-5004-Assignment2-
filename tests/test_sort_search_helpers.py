@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from sort_search import _as_1d, _check_axis, _check_k
+from numcompute.sort_search import _as_1d, _check_axis, _check_k
 
 
 @pytest.mark.parametrize(

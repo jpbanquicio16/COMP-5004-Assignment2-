@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from rank import _check_q, percentile, percentile_rank
+from numcompute.rank import _check_q, percentile, percentile_rank
 
 METHODS = ['linear', 'lower', 'higher', 'nearest', 'midpoint']
 

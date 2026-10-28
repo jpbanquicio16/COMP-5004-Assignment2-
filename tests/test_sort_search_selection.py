@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from sort_search import binary_search, quickselect, searchsorted, topk
+from numcompute.sort_search import binary_search, quickselect, searchsorted, topk
 
 
 @pytest.mark.parametrize(

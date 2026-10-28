@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from sort_search import argsort, merge_sort, sort
+from numcompute.sort_search import argsort, merge_sort, sort
 
 
 @pytest.mark.parametrize('values', [

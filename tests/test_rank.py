@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from rank import rank
+from numcompute.rank import rank
 
 METHODS = ['average', 'min', 'max', 'dense', 'ordinal']
 

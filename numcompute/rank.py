@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sort_search import _check_axis, argsort
+from numcompute.sort_search import _check_axis, argsort
 
 __all__ = [
     "rank",
