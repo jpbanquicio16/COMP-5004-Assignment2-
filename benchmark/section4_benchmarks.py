@@ -1,8 +1,8 @@
 """Section 4: reproducible loop vs NumPy benchmarks for optim, utils and pipeline.
 
 Run from the project root:
-    python benchmarks/section4_benchmarks.py
-    python benchmarks/section4_benchmarks.py --n-points 400 --repeats 7 --markdown benchmarks/section4_results.md
+    python benchmark/section4_benchmarks.py
+    python benchmark/section4_benchmarks.py --n-points 400 --repeats 7 --markdown benchmark/section4_results.md
 """
 import argparse
 import math
@@ -126,11 +126,6 @@ def f_numpy(x):
     return np.sum(x ** 2 + np.sin(x))
 
 
-def f_batch(points):
-    # the same f for many points at once: one value for every row
-    return np.sum(points ** 2 + np.sin(points), axis=1)
-
-
 def grad_loop(f, x, h, method='central'):
     n = len(x)
     result = [0.0] * n
@@ -147,14 +142,6 @@ def grad_loop(f, x, h, method='central'):
             f_down = f_at_x
         result[i] = (f(up) - f_down) / (up[i] - down[i])
     return result
-
-
-def grad_batched(f_many, x, h):
-    # one call of f for all the nudged-up points and one for all the nudged-down points
-    nudges = h * np.eye(len(x))
-    up = x + nudges
-    down = x - nudges
-    return (f_many(up) - f_many(down)) / (2 * h)
 
 
 def make_vector_function(A):
@@ -194,7 +181,7 @@ def jacobian_loop(F, x, h):
 
 
 # ---------------------------------------------------------------------------
-# pipeline: impute (mean) -> StandardScaler -> MinMaxScaler, and a tiny model
+# pipeline: impute (mean) -> StandardScaler -> MinMaxScaler
 # ---------------------------------------------------------------------------
 
 def preprocess_fit_loop(rows):
@@ -266,32 +253,12 @@ def preprocess_transform_loop(rows, learned):
     return out
 
 
-class MeanModel:
-    """A tiny model for the predict benchmark: it always predicts the mean of y."""
-
-    def fit(self, X, y=None):
-        self.mean_ = float(np.mean(y))
-        return self
-
-    def predict(self, X):
-        return np.full(len(X), self.mean_)
-
-
-def make_pipeline(with_model=False):
-    steps = [
+def make_pipeline():
+    return Pipeline([
         ('fill', SimpleImputer(strategy='mean')),
         ('std', StandardScaler()),
         ('minmax', MinMaxScaler()),
-    ]
-    if with_model:
-        steps.append(('model', MeanModel()))
-    return Pipeline(steps)
-
-
-def manual_fit_transform(X):
-    data = SimpleImputer(strategy='mean').fit_transform(X)
-    data = StandardScaler().fit_transform(data)
-    return MinMaxScaler().fit_transform(data)
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -314,29 +281,9 @@ def check_int(name, value, minimum):
         raise ValueError(f'{name} must be an integer >= {minimum}')
 
 
-def case(name, slow, fast, rtol=1e-10, atol=1e-12, same=None):
+def case(name, loop, numpy_version, rtol=1e-10, atol=1e-12, same=None):
     """One comparison. 'same' can replace the default numeric check."""
-    return {'name': name, 'slow': slow, 'fast': fast, 'rtol': rtol, 'atol': atol, 'same': same}
-
-
-def run_cases(title, slow_label, fast_label, ratio_label, cases, repeats):
-    print(f'\n{title}')
-    print(f"{'Component':<44} {slow_label:>12} {fast_label:>12} {ratio_label:>12}")
-    print('-' * 84)
-    rows = []
-    for item in cases:
-        slow_result, fast_result = item['slow'](), item['fast']()
-        if item['same'] is not None:
-            item['same'](slow_result, fast_result)
-        else:
-            np.testing.assert_allclose(slow_result, fast_result, rtol=item['rtol'], atol=item['atol'],
-                                       err_msg=f"{item['name']}: results differ")
-        slow_time = best_time(item['slow'], repeats)
-        fast_time = best_time(item['fast'], repeats)
-        rows.append((item['name'], slow_time, fast_time))
-        ratio = slow_time / fast_time if fast_time else float('inf')
-        print(f"{item['name']:<44} {slow_time:>12.6f} {fast_time:>12.6f} {ratio:>11.2f}x")
-    return rows
+    return {'name': name, 'loop': loop, 'numpy': numpy_version, 'rtol': rtol, 'atol': atol, 'same': same}
 
 
 def same_batches(loop_result, numpy_result):
@@ -345,13 +292,12 @@ def same_batches(loop_result, numpy_result):
 
 
 def run_benchmarks(n_points=200, n_values=20000, n_inputs=100, n_rows=5000, repeats=5, seed=0):
-    """Print the comparisons and return (table A rows, table B rows).
+    """Print the comparisons and return rows (name, loop seconds, NumPy seconds).
 
-    Table A: a plain Python loop against the numcompute / NumPy version.
-    Table B: numcompute compared with another way of doing the same work.
-    Both versions get identical inputs and repeat counts. The results are
-    compared before anything is timed. Data generation is not timed.
-    Python loops are intentional reference baselines, not core implementations.
+    Both versions receive identical inputs and repeat counts. Result equality
+    is checked before timing. Data generation is excluded from the timings.
+    The loop versions get plain Python lists. Python loops are intentional
+    reference baselines, not core implementations.
     """
     check_int('n_points', n_points, 3)
     check_int('n_values', n_values, 10)
@@ -388,8 +334,7 @@ def run_benchmarks(n_points=200, n_values=20000, n_inputs=100, n_rows=5000, repe
     raw = rng.normal(50, 10, size=(n_rows, 8))
     raw[rng.random(raw.shape) < 0.05] = np.nan   # about 5% missing values
     raw_list = raw.tolist()
-    y = rng.normal(70, 10, size=n_rows)
-    pipe_new = rng.normal(50, 10, size=(n_rows, 8))   # "new" data for transform and predict
+    pipe_new = rng.normal(50, 10, size=(n_rows, 8))   # "new" data for the transform case
     pipe_new[rng.random(pipe_new.shape) < 0.05] = np.nan
     pipe_new_list = pipe_new.tolist()
 
@@ -397,29 +342,8 @@ def run_benchmarks(n_points=200, n_values=20000, n_inputs=100, n_rows=5000, repe
     _, learned_core = preprocess_fit_loop(raw_list)
     learned = learned_core + (column_means_of(raw_list),)
     fitted_pipe = make_pipeline().fit(raw)
-    fitted_model_pipe = make_pipeline(with_model=True).fit(raw, y)
-    fitted_steps = [make_pipeline().fit(raw).named_steps[name] for name in ('fill', 'std', 'minmax')]
-    fitted_model = MeanModel().fit(raw, y)
 
-    def manual_transform():
-        data = pipe_new
-        for step in fitted_steps:
-            data = step.transform(data)
-        return data
-
-    def manual_predict():
-        data = pipe_new
-        for step in fitted_steps:
-            data = step.transform(data)
-        return fitted_model.predict(data)
-
-    print(f'Section 4: optim, utils and pipeline | seed={seed} | repeats={repeats}')
-    print(f'Sizes: n_points={n_points} (d={d}, {n_queries} queries, k={k}) | n_values={n_values} | '
-          f'n_inputs={n_inputs} (jacobian {jac_m}x{jac_n}) | n_rows={n_rows}')
-    print('Timing: best of repeats after one warm-up; same repeats for both versions.')
-    print('Loop versions get plain Python lists, converted before timing.')
-
-    table_a = [
+    cases = [
         case('utils: euclidean distance matrix',
              lambda: euclidean_matrix_loop(X_list, Y_list),
              lambda: utils.euclidean_distance(X[:, None, :], Y[None, :, :])),
@@ -460,38 +384,38 @@ def run_benchmarks(n_points=200, n_values=20000, n_inputs=100, n_rows=5000, repe
              lambda: preprocess_transform_loop(pipe_new_list, learned),
              lambda: fitted_pipe.transform(pipe_new), rtol=1e-9, atol=1e-9),
     ]
-    table_b = [
-        case('optim: grad (First) vs batched f call (Second)',
-             lambda: optim.grad(f_numpy, x, h),
-             lambda: grad_batched(f_batch, x, h), rtol=1e-6, atol=1e-6),
-        case('pipeline fit_transform: manual (First) vs Pipeline',
-             lambda: manual_fit_transform(raw),
-             lambda: make_pipeline().fit_transform(raw), rtol=1e-12, atol=1e-12),
-        case('pipeline transform: manual (First) vs Pipeline',
-             manual_transform,
-             lambda: fitted_pipe.transform(pipe_new), rtol=1e-12, atol=1e-12),
-        case('pipeline predict: manual (First) vs Pipeline',
-             manual_predict,
-             lambda: fitted_model_pipe.predict(pipe_new), rtol=1e-12, atol=1e-12),
-    ]
 
-    rows_a = run_cases('A. Python loop vs NumPy (numcompute)', 'Loop (s)', 'NumPy (s)', 'Speed-up',
-                       table_a, repeats)
-    rows_b = run_cases('B. Two ways to do the same work', 'First (s)', 'Second (s)',
-                       'First/Second', table_b, repeats)
+    print(f'Section 4: optim, utils and pipeline | seed={seed} | repeats={repeats}')
+    print(f'Sizes: n_points={n_points} (d={d}, {n_queries} queries, k={k}) | n_values={n_values} | '
+          f'n_inputs={n_inputs} (jacobian {jac_m}x{jac_n}) | n_rows={n_rows}')
+    print('Timing: best of repeats after one warm-up; same repeats for both versions.')
+    print('Loop versions get plain Python lists, converted before timing.')
+    print(f"{'Component':<36} {'Loop (s)':>12} {'NumPy (s)':>12} {'Speed-up':>12}")
+    print('-' * 76)
+    rows = []
+    for item in cases:
+        loop_result, numpy_result = item['loop'](), item['numpy']()
+        if item['same'] is not None:
+            item['same'](loop_result, numpy_result)
+        else:
+            np.testing.assert_allclose(loop_result, numpy_result, rtol=item['rtol'], atol=item['atol'],
+                                       err_msg=f"{item['name']}: results differ")
+        loop_time = best_time(item['loop'], repeats)
+        numpy_time = best_time(item['numpy'], repeats)
+        rows.append((item['name'], loop_time, numpy_time))
+        ratio = loop_time / numpy_time if numpy_time else float('inf')
+        print(f"{item['name']:<36} {loop_time:>12.6f} {numpy_time:>12.6f} {ratio:>11.2f}x")
 
     print('\nAll result comparisons passed.')
-    print('A speed-up below 1 means the second version was slower in this run; timings vary by machine.')
-    print('Table A: loop = pure Python on lists, NumPy = the numcompute function.')
-    print('Table B: First/Second above 1 means Second was faster, below 1 means Second was slower.')
-    print('Table B: the batched f call is a local helper in this script, it is not part of numcompute.')
+    print('A speed-up below 1 means NumPy was slower in this run; timings vary by machine.')
+    print('Loop = pure Python on lists, NumPy = the numcompute function.')
     print('Environment:', platform.platform())
     print('Processor:', platform.processor() or 'not reported')
     print(f'Python {platform.python_version()} | NumPy {np.__version__}')
-    return rows_a, rows_b
+    return rows
 
 
-def write_markdown(path, rows_a, rows_b, args):
+def write_markdown(path, rows, args):
     lines = [
         '## Section 4 benchmarks: optim, utils, pipeline',
         '',
@@ -499,17 +423,11 @@ def write_markdown(path, rows_a, rows_b, args):
         f'n_inputs={args.n_inputs}, n_rows={args.n_rows}. '
         f'Python {platform.python_version()}, NumPy {np.__version__}, {platform.platform()}.',
         '',
-        '**A. Python loop vs NumPy (numcompute)**',
-        '',
         '| Component | Loop (s) | NumPy (s) | Speed-up |',
         '|---|---|---|---|',
     ]
-    for name, slow, fast in rows_a:
-        lines.append(f'| {name} | {slow:.6f} | {fast:.6f} | {slow / fast:.2f}x |')
-    lines += ['', '**B. Two ways to do the same work**', '',
-              '| Component | First (s) | Second (s) | First/Second |', '|---|---|---|---|']
-    for name, slow, fast in rows_b:
-        lines.append(f'| {name} | {slow:.6f} | {fast:.6f} | {slow / fast:.2f}x |')
+    for name, loop_time, numpy_time in rows:
+        lines.append(f'| {name} | {loop_time:.6f} | {numpy_time:.6f} | {loop_time / numpy_time:.2f}x |')
     Path(path).write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(f'Markdown table written to {path}')
 
@@ -522,15 +440,15 @@ def main():
     parser.add_argument('--n-rows', type=int, default=5000, help='rows for the pipeline cases')
     parser.add_argument('--repeats', type=int, default=5)
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--markdown', default=None, help='optional path for a markdown copy of the tables')
+    parser.add_argument('--markdown', default=None, help='optional path for a markdown copy of the table')
     args = parser.parse_args()
     try:
-        rows_a, rows_b = run_benchmarks(args.n_points, args.n_values, args.n_inputs, args.n_rows,
-                                        args.repeats, args.seed)
+        rows = run_benchmarks(args.n_points, args.n_values, args.n_inputs, args.n_rows,
+                              args.repeats, args.seed)
     except ValueError as error:
         parser.error(str(error))
     if args.markdown:
-        write_markdown(args.markdown, rows_a, rows_b, args)
+        write_markdown(args.markdown, rows, args)
 
 
 if __name__ == '__main__':

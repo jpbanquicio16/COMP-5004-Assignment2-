@@ -231,6 +231,16 @@ All 637 Section 2 cases passed using Python 3.12.11 and NumPy 2.5.4. They includ
 NumPy integer arguments, informative validation errors, different NaN counts per
 row, extreme floating-point values and multidimensional percentile requests.
 
+### Demo
+
+Open [demo/section2_demo.ipynb](demo/section2_demo.ipynb) in Jupyter or VS Code,
+select a Python kernel with NumPy installed, and choose **Run All**. It works
+from either the project root or the `demo/` folder.
+
+The notebook covers all public sorting, selection, searching, ranking and
+percentile functions, including ties, axes, missing values, validation errors
+and a combined score report. Saved outputs and inline checks accompany the examples.
+
 ### Benchmark
 
 Run from the project root:
